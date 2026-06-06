@@ -39,7 +39,7 @@ To run or deploy this application, configure the following environment variables
 ### Frontend Variables
 | Variable Name | Description | Example Value |
 | :--- | :--- | :--- |
-| `VITE_BACKEND_URL` | Base URL of the deployed FastAPI backend API | `https://ai-loan-advisor-chatbot-production.up.railway.app` |
+| `VITE_BACKEND_URL` | Base URL of the deployed FastAPI backend API | `https://<service-name>.<environment>.up.railway. app` |
 
 ---
 

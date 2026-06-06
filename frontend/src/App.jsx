@@ -599,7 +599,7 @@ export default function App() {
                     <div className="flex justify-between items-end">
                       <div>
                         <h1 className="text-2xl font-bold uppercase tracking-wide text-black">AI Loan Advisor Consultation Report</h1>
-                        <p className="text-xs text-gray-500 mt-1">Multi-Agent Lending Evaluation & Chat History</p>
+                        <p className="text-xs text-gray-500 mt-1">Multi-Agent Lending Evaluation & Advisory Report</p>
                       </div>
                       <div className="text-right text-xs text-gray-600">
                         <div>Borrower: <strong className="text-black capitalize">{user?.username}</strong></div>
@@ -609,7 +609,7 @@ export default function App() {
                   </div>
 
                   {/* DYNAMIC LEFT OR RIGHT PANEL REDISTRIBUTION */}
-                  <div className={`flex flex-col h-full border-r border-white/5 print:block print:w-full print:h-auto print:overflow-visible print:border-none ${showDebugger || loanData ? "lg:col-span-4" : "lg:col-span-8 lg:col-start-3"}`}>
+                  <div className={`flex flex-col h-full border-r border-white/5 print:hidden ${showDebugger || loanData ? "lg:col-span-4" : "lg:col-span-8 lg:col-start-3"}`}>
                     
                     {/* CHAT PANE HEADER */}
                     <div className="px-4 py-3 border-b border-white/5 bg-black/20 flex items-center justify-between shrink-0 select-none print:hidden">
@@ -713,7 +713,7 @@ export default function App() {
 
                   {/* 3. DYNAMIC RIGHT INSPECTOR PANEL (DASHBOARD OR DEV DEBUGGER) */}
                   {(showDebugger || loanData) && (
-                    <div className="lg:col-span-8 overflow-y-auto p-6 h-full space-y-6 print:col-span-12 print:w-full print:block print:p-0 print:bg-white print:text-black print-page-break">
+                    <div className="lg:col-span-8 overflow-y-auto p-6 h-full space-y-6 print:col-span-12 print:w-full print:block print:p-0 print:bg-white print:text-black">
                       
                       {/* DEV CONSOLE MODE TOGGLED OVERRIDE */}
                       {showDebugger && (
@@ -761,7 +761,7 @@ export default function App() {
                           {/* Print Only Section Title */}
                           <div className="hidden print:block border-b border-gray-300 pb-2 mb-4">
                             <h2 className="text-sm font-bold uppercase tracking-wider text-black">
-                              2. Financial Analysis & Amortization Report
+                              Financial Analysis & Amortization Report
                             </h2>
                           </div>
 

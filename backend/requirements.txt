@@ -9,3 +9,4 @@ python-multipart>=0.0.9
 google-genai>=2.7.0
 langgraph>=0.0.26
 python-dotenv>=1.0.1
+

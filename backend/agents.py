@@ -25,6 +25,10 @@ def get_active_prompt(db: Session, agent_name: str) -> str:
         return config.system_prompt
     return ""
 
+def is_rate_limit_error(e: Exception) -> bool:
+    """Helper to detect API failures (e.g. rate limit, quota, timeout, network error) from Gemini API."""
+    return True
+
 def call_gemini(system_prompt: str, user_content: str) -> str:
     """Utility to query Gemini API or fall back if key is missing."""
     if not settings.GEMINI_API_KEY:
@@ -92,7 +96,26 @@ def run_profile_extractor(user_message: str, current_profile: dict, db: Session)
     # Structure payload containing historical state
     user_payload = f"Current profile: {json.dumps(current_profile)}\nNew User Message: '{user_message}'"
     
-    if not settings.GEMINI_API_KEY:
+    use_mock = not settings.GEMINI_API_KEY or current_profile.get("_rate_limited")
+    
+    if not use_mock:
+        try:
+            res_raw = call_gemini(system_prompt, user_payload)
+            output_data = parse_json_safely(res_raw, {})
+            # Merge extracted data into current profile
+            for k, v in output_data.items():
+                if k != "missingFields" and v is not None:
+                    current_profile[k] = v
+            current_profile["missingFields"] = output_data.get("missingFields", [])
+            output_data = current_profile
+        except Exception as e:
+            if is_rate_limit_error(e):
+                current_profile["_rate_limited"] = True
+                use_mock = True
+            else:
+                output_data = {"error": str(e), **current_profile}
+                
+    if use_mock:
         # Run mock profile extractor logic
         time.sleep(0.5)
         # Attempt simple parsing of inputs using regex for mock robustness
@@ -155,18 +178,6 @@ def run_profile_extractor(user_message: str, current_profile: dict, db: Session)
         extracted["missingFields"] = missing
         
         output_data = extracted
-    else:
-        try:
-            res_raw = call_gemini(system_prompt, user_payload)
-            output_data = parse_json_safely(res_raw, {})
-            # Merge extracted data into current profile
-            for k, v in output_data.items():
-                if k != "missingFields" and v is not None:
-                    current_profile[k] = v
-            current_profile["missingFields"] = output_data.get("missingFields", [])
-            output_data = current_profile
-        except Exception as e:
-            output_data = {"error": str(e), **current_profile}
             
     latency = time.time() - start_time
     trace = {
@@ -187,7 +198,20 @@ def run_eligibility_engine(profile: dict, db: Session) -> tuple[dict, dict]:
     amount = profile.get("loanAmount") or 0
     risk = profile.get("riskProfile") or "Medium"
     
-    if not settings.GEMINI_API_KEY:
+    use_mock = not settings.GEMINI_API_KEY or profile.get("_rate_limited")
+    
+    if not use_mock:
+        try:
+            res_raw = call_gemini(system_prompt, json.dumps(profile))
+            output_data = parse_json_safely(res_raw, {"eligibleProducts": [], "rejectedProducts": [], "reasoning": []})
+        except Exception as e:
+            if is_rate_limit_error(e):
+                profile["_rate_limited"] = True
+                use_mock = True
+            else:
+                output_data = {"error": str(e), "eligibleProducts": [], "rejectedProducts": []}
+                
+    if use_mock:
         time.sleep(0.4)
         eligible = []
         rejected = []
@@ -234,12 +258,6 @@ def run_eligibility_engine(profile: dict, db: Session) -> tuple[dict, dict]:
             "rejectedProducts": rejected,
             "reasoning": reasoning
         }
-    else:
-        try:
-            res_raw = call_gemini(system_prompt, json.dumps(profile))
-            output_data = parse_json_safely(res_raw, {"eligibleProducts": [], "rejectedProducts": [], "reasoning": []})
-        except Exception as e:
-            output_data = {"error": str(e), "eligibleProducts": [], "rejectedProducts": []}
             
     latency = time.time() - start_time
     trace = {
@@ -260,7 +278,20 @@ def run_recommendation_engine(profile: dict, eligibility: dict, db: Session) -> 
         "eligibility": eligibility
     }
     
-    if not settings.GEMINI_API_KEY:
+    use_mock = not settings.GEMINI_API_KEY or profile.get("_rate_limited")
+    
+    if not use_mock:
+        try:
+            res_raw = call_gemini(system_prompt, json.dumps(payload))
+            output_data = parse_json_safely(res_raw, {"recommendedProduct": {}, "alternatives": [], "whyRecommended": []})
+        except Exception as e:
+            if is_rate_limit_error(e):
+                profile["_rate_limited"] = True
+                use_mock = True
+            else:
+                output_data = {"error": str(e), "recommendedProduct": {}, "alternatives": []}
+                
+    if use_mock:
         time.sleep(0.4)
         eligible = eligibility.get("eligibleProducts", [])
         if not eligible:
@@ -300,12 +331,6 @@ def run_recommendation_engine(profile: dict, eligibility: dict, db: Session) -> 
                 "alternatives": ranked[1:] if len(ranked) > 1 else [],
                 "whyRecommended": [f"Ranked first because suitability score matches {ranked[0]['suitabilityScore']}% alignment with purpose '{profile.get('loanPurpose')}' and affordable tenure constraint."]
             }
-    else:
-        try:
-            res_raw = call_gemini(system_prompt, json.dumps(payload))
-            output_data = parse_json_safely(res_raw, {"recommendedProduct": {}, "alternatives": [], "whyRecommended": []})
-        except Exception as e:
-            output_data = {"error": str(e), "recommendedProduct": {}, "alternatives": []}
             
     latency = time.time() - start_time
     trace = {
@@ -382,7 +407,20 @@ def run_compliance_checker(profile: dict, recommendation: dict, emi_data: dict, 
         "dti_ratio": round(dti_ratio, 4)
     }
     
-    if not settings.GEMINI_API_KEY:
+    use_mock = not settings.GEMINI_API_KEY or profile.get("_rate_limited")
+    
+    if not use_mock:
+        try:
+            res_raw = call_gemini(system_prompt, json.dumps(payload))
+            output_data = parse_json_safely(res_raw, {"complianceApproved": True, "warnings": []})
+        except Exception as e:
+            if is_rate_limit_error(e):
+                profile["_rate_limited"] = True
+                use_mock = True
+            else:
+                output_data = {"error": str(e), "complianceApproved": False, "warnings": ["System check failed."]}
+                
+    if use_mock:
         time.sleep(0.3)
         warnings = []
         approved = True
@@ -401,12 +439,6 @@ def run_compliance_checker(profile: dict, recommendation: dict, emi_data: dict, 
             "complianceApproved": approved,
             "warnings": warnings
         }
-    else:
-        try:
-            res_raw = call_gemini(system_prompt, json.dumps(payload))
-            output_data = parse_json_safely(res_raw, {"complianceApproved": True, "warnings": []})
-        except Exception as e:
-            output_data = {"error": str(e), "complianceApproved": False, "warnings": ["System check failed."]}
             
     latency = time.time() - start_time
     trace = {
@@ -435,7 +467,20 @@ def run_explanation_agent(profile: dict, recommendation: dict, emi_data: dict, c
         "compliance": compliance
     }
     
-    if not settings.GEMINI_API_KEY:
+    use_mock = not settings.GEMINI_API_KEY or profile.get("_rate_limited")
+    
+    if not use_mock:
+        try:
+            res_raw = call_gemini(system_prompt, json.dumps(payload))
+            output_data = res_raw
+        except Exception as e:
+            if is_rate_limit_error(e):
+                profile["_rate_limited"] = True
+                use_mock = True
+            else:
+                output_data = f"Error generating explanation: {str(e)}"
+                
+    if use_mock:
         time.sleep(0.6)
         
         rec_name = recommendation.get("recommendedProduct", {}).get("name", "Standard Loan")
@@ -516,12 +561,17 @@ Based on the information provided, we have structured a customized lending profi
             markdown += "\n*Disclaimer: Final approval depends on lender underwriting, KYC verification, and policy checks.*"
             
         output_data = markdown
-    else:
-        try:
-            res_raw = call_gemini(system_prompt, json.dumps(payload))
-            output_data = res_raw
-        except Exception as e:
-            output_data = f"Error generating explanation: {str(e)}"
+        
+        # Prepend friendly fallback message if rate limited
+        if profile.get("_rate_limited"):
+            if language.lower() == "hindi":
+                fallback_msg = "> ⚠️ **API कनेक्शन समस्या / दर सीमा (API Connection Issue / Rate Limit):** सैंडबॉक्स वातावरण में अस्थायी रूप से API समस्याएं या दर सीमा देखी गई है। सिस्टम स्वचालित रूप से नियम-आधारित सिमुलेशन पर वापस आ गया है। कृपया कुछ क्षणों में पुन: प्रयास करें, या दाईं ओर के डैशबोर्ड पर इंटरैक्टिव स्लाइडर्स का उपयोग करना जारी रखें।\n\n"
+            elif language.lower() == "hinglish":
+                fallback_msg = "> ⚠️ **API Connection Issue / Rate Limit:** Sandbox environment me temporarily API issue ya rate limit encounter hui hai. System automatic rule-based simulations par fall back kar raha hai. Please thodi der baad try karein, ya right-hand dashboard par interactive sliders ka use continue rakhein.\n\n"
+            else:
+                fallback_msg = "> ⚠️ **API Connection Issue / Rate Limit:** The sandbox environment has temporarily encountered API issues or rate limits. The system has automatically fallen back to rule-based simulations. Please try again in a moment, or continue using our interactive sliders on the right-hand dashboard.\n\n"
+            
+            output_data = fallback_msg + output_data
             
     latency = time.time() - start_time
     trace = {
@@ -566,6 +616,15 @@ def execute_loan_chain(user_message: str, current_profile: dict, language: str, 
             text_response = f"आपका वित्तीय प्रोफ़ाइल पूरा करने के लिए मुझे कुछ अतिरिक्त विवरणों की आवश्यकता है:\n\n{missing_text}\n\nकृपया इन विवरणों को साझा करें ताकि मैं आपकी पात्रता और मासिक किस्तों की गणना कर सकूं।"
         else:
             text_response = f"To accurately calculate your eligible products and EMI, I need a few more details about you:\n\n{missing_text}\n\nCould you please share these so we can build your evaluation?"
+            
+        if profile.get("_rate_limited"):
+            if language.lower() == "hindi":
+                fallback_msg = "> ⚠️ **API कनेक्शन समस्या / दर सीमा (API Connection Issue / Rate Limit):** सैंडबॉक्स वातावरण में अस्थायी रूप से API समस्याएं या दर सीमा देखी गई है। सिस्टम स्वचालित रूप से नियम-आधारित सिमुलेशन पर वापस आ गया है। कृपया कुछ क्षणों में पुन: प्रयास करें, या दाईं ओर के डैशबोर्ड पर इंटरैक्टिव स्लाइडर्स का उपयोग करना जारी रखें।\n\n"
+            elif language.lower() == "hinglish":
+                fallback_msg = "> ⚠️ **API Connection Issue / Rate Limit:** Sandbox environment me temporarily API issue ya rate limit encounter hui hai. System automatic rule-based simulations par fall back kar raha hai. Please thodi der baad try karein, ya right-hand dashboard par interactive sliders ka use continue rakhein.\n\n"
+            else:
+                fallback_msg = "> ⚠️ **API Connection Issue / Rate Limit:** The sandbox environment has temporarily encountered API issues or rate limits. The system has automatically fallen back to rule-based simulations. Please try again in a moment, or continue using our interactive sliders on the right-hand dashboard.\n\n"
+            text_response = fallback_msg + text_response
             
         return {
             "profile": profile,

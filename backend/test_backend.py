@@ -125,5 +125,44 @@ class TestLoanAdvisorBackend(unittest.TestCase):
         self.assertEqual(scenario_12["tenure_months"], 12)
         self.assertEqual(scenario_12["emi"], 8884.88)
 
+    def test_rate_limit_fallback_profile_extractor(self):
+        """Assert profile extractor falls back to mock logic and sets _rate_limited on rate limit error."""
+        from unittest.mock import patch
+        from config import settings
+        from agents import run_profile_extractor
+        
+        settings.GEMINI_API_KEY = "test_key"
+        
+        with patch("agents.call_gemini", side_effect=Exception("429 RESOURCE_EXHAUSTED Quota limit exceeded")):
+            profile = {}
+            res, trace = run_profile_extractor("I need rs. 50000", profile, self.db)
+            
+            # Assert rate limited flag is set to True
+            self.assertTrue(res.get("_rate_limited"))
+            # Assert mock parsing extracted the amount
+            self.assertEqual(res.get("loanAmount"), 50000.0)
+
+    def test_rate_limit_fallback_explanation_agent(self):
+        """Assert explanation agent prepends fallback message on rate limit error."""
+        from unittest.mock import patch
+        from config import settings
+        from agents import run_explanation_agent
+        
+        settings.GEMINI_API_KEY = "test_key"
+        
+        with patch("agents.call_gemini", side_effect=Exception("429 RESOURCE_EXHAUSTED Quota limit exceeded")):
+            profile = {"loanAmount": 50000, "monthlyIncome": 30000, "loanPurpose": "Education"}
+            recommendation = {"recommendedProduct": {"name": "Personal Loan", "rate": 10.5, "tenure": 12}}
+            emi_data = {"main_calculation": {"emi": 4500, "interest": 400, "repayment": 50400}, "tenure": 12, "amount": 50000}
+            compliance = {"complianceApproved": True, "warnings": []}
+            
+            res, trace = run_explanation_agent(profile, recommendation, emi_data, compliance, "english", self.db)
+            
+            # Assert rate limited flag is set to True
+            self.assertTrue(profile.get("_rate_limited"))
+            # Assert fallback warning is prepended to the response
+            self.assertIn("API Connection Issue / Rate Limit", res)
+            self.assertIn("rule-based simulations", res)
+
 if __name__ == "__main__":
     unittest.main()

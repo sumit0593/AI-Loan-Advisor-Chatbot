@@ -419,10 +419,12 @@ export default function App() {
   };
 
   // Streaming typing effect component for assistant messages
-  const StreamingMessage = ({ text, renderFn }) => {
+  const StreamingMessage = ({ text, renderFn, onComplete }) => {
     const [displayedLength, setDisplayedLength] = useState(0);
     const [isComplete, setIsComplete] = useState(false);
     const intervalRef = useRef(null);
+    const onCompleteRef = useRef(onComplete);
+    onCompleteRef.current = onComplete;
 
     useEffect(() => {
       if (!text) return;
@@ -440,6 +442,8 @@ export default function App() {
           currentIdx = totalLen;
           clearInterval(intervalRef.current);
           setIsComplete(true);
+          // Notify parent to clear isNew so it doesn't re-trigger
+          if (onCompleteRef.current) onCompleteRef.current();
         }
         setDisplayedLength(currentIdx);
       }, 16);
@@ -1119,7 +1123,16 @@ export default function App() {
                             {m.sender === "user" ? (
                               <p className="leading-relaxed whitespace-pre-wrap print:text-slate-800">{m.message}</p>
                             ) : m.isNew ? (
-                              <StreamingMessage text={m.message} renderFn={renderMessageContent} />
+                              <StreamingMessage
+                                text={m.message}
+                                renderFn={renderMessageContent}
+                                onComplete={() => {
+                                  // Clear isNew flag so animation doesn't replay on re-renders
+                                  setMessages(prev => prev.map(msg =>
+                                    msg.id === m.id ? { ...msg, isNew: false } : msg
+                                  ));
+                                }}
+                              />
                             ) : (
                               <div className="space-y-1">{renderMessageContent(m.message)}</div>
                             )}
